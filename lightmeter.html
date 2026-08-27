@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SAD Lamp Lux Meter</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; background: #121212; color: #fff; text-align: center; }
+    .card { background: #1e1e1e; padding: 24px; border-radius: 12px; margin-top: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
+    .lux-val { font-size: 3.5rem; font-weight: bold; color: #4da6ff; margin: 10px 0; }
+    .status { font-weight: 600; font-size: 1.1rem; }
+    input, button { padding: 12px; font-size: 1rem; border-radius: 6px; border: none; margin: 5px; }
+    input { width: 100px; text-align: center; }
+    button { background: #007bff; color: white; cursor: pointer; font-weight: bold; }
+  </style>
+</head>
+<body>
+
+  <h2>SAD Lamp Lux Meter</h2>
+
+  <div class="card">
+    <div>Raw Sensor Value: <span id="rawLux">0</span> lx</div>
+    <div class="lux-val" id="calibratedLux">0 lx</div>
+    <div class="status" id="sadStatus">Evaluating...</div>
+  </div>
+
+  <div class="card">
+    <h3>Calibration Multiplier</h3>
+    <p style="font-size: 0.85rem; color: #aaa;">If a reference light meter reads higher/lower than the raw value, adjust this scalar multiplier.</p>
+    <input type="number" id="multiplier" value="1.0" step="0.1" min="0.1">
+    <button onclick="saveCalibration()">Apply Multiplier</button>
+  </div>
+
+  <script>
+    let scaleFactor = parseFloat(localStorage.getItem('sad_lux_multiplier')) || 1.0;
+    document.getElementById('multiplier').value = scaleFactor;
+
+    function saveCalibration() {
+      scaleFactor = parseFloat(document.getElementById('multiplier').value) || 1.0;
+      localStorage.setItem('sad_lux_multiplier', scaleFactor);
+      alert('Calibration saved!');
+    }
+
+    if ('AmbientLightSensor' in window) {
+      try {
+        const sensor = new AmbientLightSensor();
+        sensor.addEventListener('reading', () => {
+          const raw = sensor.illuminance;
+          const calibrated = Math.round(raw * scaleFactor);
+
+          document.getElementById('rawLux').innerText = raw.toFixed(1);
+          document.getElementById('calibratedLux').innerText = calibrated.toLocaleString() + ' lx';
+
+          // SAD Light Therapy Threshold Check
+          const statusEl = document.getElementById('sadStatus');
+          if (calibrated >= 10000) {
+            statusEl.innerText = "Optimal (10,000+ lx for SAD Therapy)";
+            statusEl.style.color = "#4CAF50";
+          } else if (calibrated >= 2500) {
+            statusEl.innerText = "Moderate (2,500 lx - Requires longer exposure)";
+            statusEl.style.color = "#FF9800";
+          } else {
+            statusEl.innerText = "Low (<2,500 lx - Too dim for efficient SAD therapy)";
+            statusEl.style.color = "#F44336";
+          }
+        });
+
+        sensor.addEventListener('error', event => {
+          document.getElementById('sadStatus').innerText = "Sensor Error: " + event.error.name;
+        });
+
+        sensor.start();
+      } catch (error) {
+        document.getElementById('sadStatus').innerText = "Access denied or feature disabled in flags.";
+      }
+    } else {
+      document.getElementById('sadStatus').innerText = "AmbientLightSensor API not supported natively on this browser. Enable chrome://flags/#enable-generic-sensor-extra-classes";
+    }
+  </script>
+</body>
+</html>
