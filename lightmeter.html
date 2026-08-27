@@ -3,79 +3,212 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SAD Lamp Lux Meter</title>
+  <title>SAD Lamp Lux Calibrator & Meter</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; padding: 20px; background: #121212; color: #fff; text-align: center; }
-    .card { background: #1e1e1e; padding: 24px; border-radius: 12px; margin-top: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }
-    .lux-val { font-size: 3.5rem; font-weight: bold; color: #4da6ff; margin: 10px 0; }
-    .status { font-weight: 600; font-size: 1.1rem; }
-    input, button { padding: 12px; font-size: 1rem; border-radius: 6px; border: none; margin: 5px; }
-    input { width: 100px; text-align: center; }
-    button { background: #007bff; color: white; cursor: pointer; font-weight: bold; }
+    :root { --bg: #121212; --card: #1e1e1e; --accent: #007bff; --success: #28a745; --danger: #dc3545; --text: #f4f4f4; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 16px; display: flex; justify-content: center; }
+    .container { width: 100%; max-width: 480px; }
+    .card { background: var(--card); border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); text-align: center; }
+    .hidden { display: none !important; }
+    h1, h2, h3 { margin-top: 0; }
+    button { width: 100%; padding: 14px; font-size: 1rem; font-weight: bold; border: none; border-radius: 8px; margin: 6px 0; cursor: pointer; color: #fff; background: var(--accent); transition: opacity 0.2s; }
+    button:active { opacity: 0.8; }
+    button.secondary { background: #444; }
+    button.danger { background: var(--danger); }
+    button.success { background: var(--success); }
+    .lux-display { font-size: 3.5rem; font-weight: 800; color: #4da6ff; margin: 12px 0; }
+    .badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 0.85rem; font-weight: 600; background: #333; margin-bottom: 12px; }
+    .input-group { text-align: left; margin: 12px 0; background: #2a2a2a; padding: 12px; border-radius: 8px; }
+    .input-group label { display: block; font-size: 0.85rem; color: #aaa; margin-bottom: 4px; }
+    .input-row { display: flex; gap: 8px; }
+    input[type="number"] { flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #121212; color: #fff; font-size: 1rem; }
+    .subtext { font-size: 0.8rem; color: #888; }
   </style>
 </head>
 <body>
 
-  <h2>SAD Lamp Lux Meter</h2>
+<div class="container">
 
-  <div class="card">
-    <div>Raw Sensor Value: <span id="rawLux">0</span> lx</div>
-    <div class="lux-val" id="calibratedLux">0 lx</div>
-    <div class="status" id="sadStatus">Evaluating...</div>
+  <div id="view-main" class="card">
+    <h2>SAD Lux Meter</h2>
+    <div id="cal-badge" class="badge">Status: Uncalibrated (Raw 1:1)</div>
+    <button onclick="switchView('view-measure')">Measure Illuminance</button>
+    <button onclick="switchView('view-calibrate')" class="secondary">Calibrate Sensor</button>
+    <button onclick="deleteCalibration()" class="danger">Delete Calibration Data</button>
   </div>
 
-  <div class="card">
-    <h3>Calibration Multiplier</h3>
-    <p style="font-size: 0.85rem; color: #aaa;">If a reference light meter reads higher/lower than the raw value, adjust this scalar multiplier.</p>
-    <input type="number" id="multiplier" value="1.0" step="0.1" min="0.1">
-    <button onclick="saveCalibration()">Apply Multiplier</button>
+  <div id="view-measure" class="card hidden">
+    <h3>Illuminance Reading</h3>
+    <div class="lux-display" id="measure-val">0 lx</div>
+    <div class="subtext">Raw Phone Sensor: <span id="raw-val">0</span> lx</div>
+    <div id="sad-target-status" class="badge" style="margin-top: 15px;">Target: Calculating...</div>
+
+    <button onclick="shareReading()" class="success" style="margin-top: 20px;">Share Measurement</button>
+    <button onclick="switchView('view-main')" class="secondary">Go Back</button>
   </div>
 
-  <script>
-    let scaleFactor = parseFloat(localStorage.getItem('sad_lux_multiplier')) || 1.0;
-    document.getElementById('multiplier').value = scaleFactor;
+  <div id="view-calibrate" class="card hidden">
+    <h3>Two-Point Calibration</h3>
+    <p class="subtext">Place phone next to your reference meter (e.g. Konica Minolta). Capture phone raw lux, then type the reference meter reading.</p>
+    
+    <div class="badge">Live Sensor Raw: <span id="live-raw">0</span> lx</div>
 
-    function saveCalibration() {
-      scaleFactor = parseFloat(document.getElementById('multiplier').value) || 1.0;
-      localStorage.setItem('sad_lux_multiplier', scaleFactor);
-      alert('Calibration saved!');
+    <div class="input-group">
+      <label>1. Low/Indoor Light Marker</label>
+      <div class="input-row">
+        <button onclick="capturePoint(1)" class="secondary" style="width: auto;">Capture Raw</button>
+        <input type="number" id="p1-raw" placeholder="Raw lx" readonly>
+        <input type="number" id="p1-ref" placeholder="Meter lx">
+      </div>
+    </div>
+
+    <div class="input-group">
+      <label>2. High/Daylight Marker</label>
+      <div class="input-row">
+        <button onclick="capturePoint(2)" class="secondary" style="width: auto;">Capture Raw</button>
+        <input type="number" id="p2-raw" placeholder="Raw lx" readonly>
+        <input type="number" id="p2-ref" placeholder="Meter lx">
+      </div>
+    </div>
+
+    <button onclick="saveCalibration()">Save Calibration</button>
+    <button onclick="switchView('view-main')" class="secondary">Cancel / Back</button>
+  </div>
+
+</div>
+
+<script>
+  let rawSensorValue = 0;
+  let cal = JSON.parse(localStorage.getItem('sad_meter_calibration')) || { p1Raw: null, p1Ref: null, p2Raw: null, p2Ref: null, slope: 1, offset: 0 };
+
+  // Sensor Initialization
+  if ('AmbientLightSensor' in window) {
+    try {
+      const sensor = new AmbientLightSensor();
+      sensor.addEventListener('reading', () => {
+        rawSensorValue = sensor.illuminance;
+        updateUI();
+      });
+      sensor.start();
+    } catch (e) {
+      alert("Sensor access denied. Enable chrome://flags/#enable-generic-sensor-extra-classes");
     }
+  } else {
+    alert("AmbientLightSensor API not supported on this browser.");
+  }
 
-    if ('AmbientLightSensor' in window) {
-      try {
-        const sensor = new AmbientLightSensor();
-        sensor.addEventListener('reading', () => {
-          const raw = sensor.illuminance;
-          const calibrated = Math.round(raw * scaleFactor);
+  function getCalibratedLux(raw) {
+    return Math.max(0, Math.round(raw * cal.slope + cal.offset));
+  }
 
-          document.getElementById('rawLux').innerText = raw.toFixed(1);
-          document.getElementById('calibratedLux').innerText = calibrated.toLocaleString() + ' lx';
+  function updateUI() {
+    // Update live raw readouts
+    document.getElementById('live-raw').innerText = rawSensorValue.toFixed(1);
+    document.getElementById('raw-val').innerText = rawSensorValue.toFixed(1);
 
-          // SAD Light Therapy Threshold Check
-          const statusEl = document.getElementById('sadStatus');
-          if (calibrated >= 10000) {
-            statusEl.innerText = "Optimal (10,000+ lx for SAD Therapy)";
-            statusEl.style.color = "#4CAF50";
-          } else if (calibrated >= 2500) {
-            statusEl.innerText = "Moderate (2,500 lx - Requires longer exposure)";
-            statusEl.style.color = "#FF9800";
-          } else {
-            statusEl.innerText = "Low (<2,500 lx - Too dim for efficient SAD therapy)";
-            statusEl.style.color = "#F44336";
-          }
-        });
+    // Update measure screen
+    const calLux = getCalibratedLux(rawSensorValue);
+    document.getElementById('measure-val').innerText = calLux.toLocaleString() + ' lx';
 
-        sensor.addEventListener('error', event => {
-          document.getElementById('sadStatus').innerText = "Sensor Error: " + event.error.name;
-        });
-
-        sensor.start();
-      } catch (error) {
-        document.getElementById('sadStatus').innerText = "Access denied or feature disabled in flags.";
-      }
+    // SAD Target status indicator
+    const targetEl = document.getElementById('sad-target-status');
+    if (calLux >= 10000) {
+      targetEl.innerText = "Optimal: Met 10,000 lx Threshold";
+      targetEl.style.background = "#28a745";
+    } else if (calLux >= 2500) {
+      targetEl.innerText = "Moderate: 2,500 - 9,999 lx (Requires longer session)";
+      targetEl.style.background = "#ff9800";
     } else {
-      document.getElementById('sadStatus').innerText = "AmbientLightSensor API not supported natively on this browser. Enable chrome://flags/#enable-generic-sensor-extra-classes";
+      targetEl.innerText = "Insufficient: Below 2,500 lx";
+      targetEl.style.background = "#dc3545";
     }
-  </script>
+
+    // Badge status on main screen
+    const badge = document.getElementById('cal-badge');
+    if (cal.p1Raw !== null && cal.p2Raw !== null) {
+      badge.innerText = "Status: 2-Point Calibrated";
+      badge.style.background = "#28a745";
+    } else {
+      badge.innerText = "Status: Uncalibrated (Raw 1:1)";
+      badge.style.background = "#333";
+    }
+  }
+
+  function capturePoint(pt) {
+    document.getElementById(`p${pt}-raw`).value = rawSensorValue.toFixed(1);
+  }
+
+  function saveCalibration() {
+    const p1r = parseFloat(document.getElementById('p1-raw').value);
+    const p1m = parseFloat(document.getElementById('p1-ref').value);
+    const p2r = parseFloat(document.getElementById('p2-raw').value);
+    const p2m = parseFloat(document.getElementById('p2-ref').value);
+
+    if (isNaN(p1r) || isNaN(p1m) || isNaN(p2r) || isNaN(p2m)) {
+      alert("Please capture raw values and enter reference readings for both points.");
+      return;
+    }
+
+    if (p1r === p2r) {
+      alert("Raw readings for Point 1 and Point 2 cannot be identical.");
+      return;
+    }
+
+    // Linear fit: y = mx + b
+    const slope = (p2m - p1m) / (p2r - p1r);
+    const offset = p1m - (slope * p1r);
+
+    cal = { p1Raw: p1r, p1Ref: p1m, p2Raw: p2r, p2Ref: p2m, slope: slope, offset: offset };
+    localStorage.setItem('sad_meter_calibration', JSON.stringify(cal));
+    
+    alert(`Calibration saved!\nSlope: ${slope.toFixed(3)}, Offset: ${offset.toFixed(1)} lx`);
+    switchView('view-main');
+  }
+
+  function deleteCalibration() {
+    if (confirm("Reset calibration data to factory defaults?")) {
+      localStorage.removeItem('sad_meter_calibration');
+      cal = { p1Raw: null, p1Ref: null, p2Raw: null, p2Ref: null, slope: 1, offset: 0 };
+      document.getElementById('p1-raw').value = '';
+      document.getElementById('p1-ref').value = '';
+      document.getElementById('p2-raw').value = '';
+      document.getElementById('p2-ref').value = '';
+      updateUI();
+      alert("Calibration data deleted.");
+    }
+  }
+
+  function shareReading() {
+    const luxVal = getCalibratedLux(rawSensorValue).toLocaleString();
+    const shareData = {
+      title: 'SAD Lamp Illuminance Reading',
+      text: `Measured ${luxVal} lx from SAD therapy lamp using calibrated mobile meter.`,
+      url: window.location.href
+    };
+
+    if (navigator.share) {
+      navigator.share(shareData).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(shareData.text);
+      alert("Measurement copied to clipboard!");
+    }
+  }
+
+  function switchView(viewId) {
+    document.querySelectorAll('.container > div').forEach(div => div.classList.add('hidden'));
+    document.getElementById(viewId).classList.remove('hidden');
+    
+    // Pre-fill calibration inputs if returning to calibrate screen
+    if (viewId === 'view-calibrate' && cal.p1Raw !== null) {
+      document.getElementById('p1-raw').value = cal.p1Raw;
+      document.getElementById('p1-ref').value = cal.p1Ref;
+      document.getElementById('p2-raw').value = cal.p2Raw;
+      document.getElementById('p2-ref').value = cal.p2Ref;
+    }
+  }
+
+  // Initial load UI populate
+  updateUI();
+</script>
 </body>
 </html>
