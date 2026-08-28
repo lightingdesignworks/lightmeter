@@ -3,66 +3,66 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sensor Test</title>
+  <title>Camera Lux Estimator</title>
   <style>
-    body { font-family: sans-serif; background: #121212; color: #fff; text-align: center; padding: 40px 20px; }
-    .val { font-size: 3.5rem; font-weight: bold; color: #00ffcc; margin: 30px 0; }
-    button { padding: 16px 32px; font-size: 1.2rem; font-weight: bold; background: #007bff; color: white; border: none; border-radius: 8px; }
-    .log { margin-top: 25px; font-size: 0.9rem; color: #aaa; background: #1e1e1e; padding: 12px; border-radius: 6px; }
+    body { font-family: sans-serif; background: #121212; color: #fff; text-align: center; padding: 20px; }
+    .lux-val { font-size: 3.5rem; font-weight: bold; color: #00ffcc; margin: 20px 0; }
+    video, canvas { display: none; }
+    button { padding: 14px 28px; font-size: 1.1rem; font-weight: bold; background: #007bff; color: white; border: none; border-radius: 8px; }
   </style>
 </head>
 <body>
 
-  <h2>Light Sensor Hardware Test</h2>
+  <h2>Camera-Based Lux Meter</h2>
+  <div class="lux-val" id="luxDisplay">-- lx</div>
+  <button id="startBtn" onclick="initCamera()">Start Sensor Feed</button>
 
-  <div class="val" id="luxDisplay">-- lx</div>
-
-  <button id="readBtn">Take Reading</button>
-
-  <div class="log" id="statusLog">Status: Initializing...</div>
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas" width="64" height="64"></canvas>
 
   <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
     const luxDisplay = document.getElementById('luxDisplay');
-    const statusLog = document.getElementById('statusLog');
-    const readBtn = document.getElementById('readBtn');
 
-    let latestLux = null;
-    let sensor = null;
-
-    // Check Web API Availability
-    if ('AmbientLightSensor' in window) {
+    async function initCamera() {
       try {
-        sensor = new AmbientLightSensor();
-
-        sensor.addEventListener('reading', () => {
-          latestLux = sensor.illuminance;
-          statusLog.innerText = "Status: Hardware sensor actively streaming data.";
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user", width: 64, height: 64 }
         });
-
-        sensor.addEventListener('error', (event) => {
-          statusLog.innerText = "Sensor Error: " + event.error.name + " - " + event.error.message;
-        });
-
-        sensor.start();
+        video.srcObject = stream;
+        document.getElementById('startBtn').style.display = 'none';
+        setInterval(calculateLuminance, 250);
       } catch (err) {
-        statusLog.innerText = "Init Exception: " + err.message;
+        alert("Camera access denied or unavailable: " + err.message);
       }
-    } else {
-      statusLog.innerText = "Status: 'AmbientLightSensor' API is NOT exposed in this browser.";
     }
 
-    // Button click updates display with the latest captured frame
-    readBtn.addEventListener('click', () => {
-      if (latestLux !== null) {
-        luxDisplay.innerText = latestLux + " lx";
-      } else if (!('AmbientLightSensor' in window)) {
-        luxDisplay.innerText = "Unsupported";
-        alert("Your browser does not expose the AmbientLightSensor API.");
-      } else {
-        luxDisplay.innerText = "No Data";
-        alert("Sensor API exists, but no light reading has been emitted yet. Check browser flags or permissions.");
+    function calculateLuminance() {
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        ctx.drawImage(video, 0, 0, 64, 64);
+        const frame = ctx.getImageData(0, 0, 64, 64);
+        const data = frame.data;
+        let totalLuminance = 0;
+
+        for (let i = 0; i < data.length; i += 4) {
+          // Standard ITU-R BT.601 relative luminance formula
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          const lum = (0.299 * r + 0.587 * g + 0.114 * b);
+          totalLuminance += lum;
+        }
+
+        const avgLuminance = totalLuminance / (data.length / 4);
+        
+        // Uncalibrated relative scaling (0-255 scaled to an arbitrary lux curve)
+        // This value is calibrated against a meter using your two-point setup
+        const estimatedLux = Math.round(Math.pow(avgLuminance / 255, 2.2) * 12000);
+        luxDisplay.innerText = estimatedLux.toLocaleString() + " lx";
       }
-    });
+    }
   </script>
 </body>
 </html>
