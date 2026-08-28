@@ -3,66 +3,269 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Camera Lux Estimator</title>
+  <title>SAD Lamp Lux Calibrator & Meter</title>
   <style>
-    body { font-family: sans-serif; background: #121212; color: #fff; text-align: center; padding: 20px; }
-    .lux-val { font-size: 3.5rem; font-weight: bold; color: #00ffcc; margin: 20px 0; }
+    :root { --bg: #121212; --card: #1e1e1e; --accent: #007bff; --success: #28a745; --danger: #dc3545; --text: #f4f4f4; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 16px; display: flex; justify-content: center; }
+    .container { width: 100%; max-width: 480px; }
+    .card { background: var(--card); border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.4); text-align: center; }
+    .hidden { display: none !important; }
+    h2, h3 { margin-top: 0; }
+    button { width: 100%; padding: 14px; font-size: 1rem; font-weight: bold; border: none; border-radius: 8px; margin: 6px 0; cursor: pointer; color: #fff; background: var(--accent); transition: opacity 0.2s; }
+    button:active { opacity: 0.8; }
+    button.secondary { background: #444; }
+    button.danger { background: var(--danger); }
+    button.success { background: var(--success); }
+    .lux-display { font-size: 3.5rem; font-weight: 800; color: #4da6ff; margin: 12px 0; }
+    .badge { display: inline-block; padding: 6px 14px; border-radius: 12px; font-size: 0.85rem; font-weight: 600; background: #333; margin-bottom: 12px; }
+    .input-group { text-align: left; margin: 12px 0; background: #2a2a2a; padding: 12px; border-radius: 8px; }
+    .input-group label { display: block; font-size: 0.85rem; color: #aaa; margin-bottom: 6px; }
+    .input-row { display: flex; gap: 8px; }
+    input[type="number"] { flex: 1; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #121212; color: #fff; font-size: 1rem; width: 50%; }
+    .subtext { font-size: 0.8rem; color: #888; }
     video, canvas { display: none; }
-    button { padding: 14px 28px; font-size: 1.1rem; font-weight: bold; background: #007bff; color: white; border: none; border-radius: 8px; }
   </style>
 </head>
 <body>
 
-  <h2>Camera-Based Lux Meter</h2>
-  <div class="lux-val" id="luxDisplay">-- lx</div>
-  <button id="startBtn" onclick="initCamera()">Start Sensor Feed</button>
+<div class="container">
 
-  <video id="video" autoplay playsinline></video>
-  <canvas id="canvas" width="64" height="64"></canvas>
+  <!-- MAIN MENU VIEW -->
+  <div id="view-main" class="card">
+    <h2>SAD Lux Meter</h2>
+    <div id="cal-badge" class="badge">Status: Uncalibrated</div>
+    <button onclick="switchView('view-measure')">Measure Illuminance</button>
+    <button onclick="switchView('view-calibrate')" class="secondary">Calibrate Sensor</button>
+    <button onclick="deleteCalibration()" class="danger">Delete Calibration Data</button>
+  </div>
 
-  <script>
-    const video = document.getElementById('video');
-    const canvas = document.getElementById('canvas');
-    const ctx = canvas.getContext('2d');
-    const luxDisplay = document.getElementById('luxDisplay');
+  <!-- MEASURE VIEW -->
+  <div id="view-measure" class="card hidden">
+    <h3>Illuminance Reading</h3>
+    <div class="lux-display" id="measure-val">0 lx</div>
+    <div class="subtext">Raw Camera Metric: <span id="raw-val">0</span></div>
+    <div id="sad-target-status" class="badge" style="margin-top: 15px;">Target: Calculating...</div>
 
-    async function initCamera() {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "user", width: 64, height: 64 }
-        });
-        video.srcObject = stream;
-        document.getElementById('startBtn').style.display = 'none';
-        setInterval(calculateLuminance, 250);
-      } catch (err) {
-        alert("Camera access denied or unavailable: " + err.message);
-      }
-    }
+    <button onclick="shareReading()" class="success" style="margin-top: 20px;">Share Measurement</button>
+    <button onclick="switchView('view-main')" class="secondary">Go Back</button>
+  </div>
 
-    function calculateLuminance() {
-      if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        ctx.drawImage(video, 0, 0, 64, 64);
-        const frame = ctx.getImageData(0, 0, 64, 64);
-        const data = frame.data;
-        let totalLuminance = 0;
+  <!-- CALIBRATE VIEW -->
+  <div id="view-calibrate" class="card hidden">
+    <h3>Two-Point Calibration</h3>
+    <p class="subtext">Place phone next to your reference meter (e.g. Konica Minolta). Capture phone raw metric, then type your reference meter reading.</p>
+    
+    <div class="badge">Live Raw Metric: <span id="live-raw">0</span></div>
 
-        for (let i = 0; i < data.length; i += 4) {
-          // Standard ITU-R BT.601 relative luminance formula
-          const r = data[i];
-          const g = data[i + 1];
-          const b = data[i + 2];
-          const lum = (0.299 * r + 0.587 * g + 0.114 * b);
-          totalLuminance += lum;
-        }
+    <!-- Point 1 -->
+    <div class="input-group">
+      <label>1. Low Light Marker (Indoor Ambient)</label>
+      <div class="input-row">
+        <button onclick="capturePoint(1)" class="secondary" style="width: auto;">Capture Raw</button>
+        <input type="number" id="p1-raw" placeholder="Raw Metric" readonly>
+        <input type="number" id="p1-ref" placeholder="Meter lx">
+      </div>
+    </div>
 
-        const avgLuminance = totalLuminance / (data.length / 4);
+    <!-- Point 2 -->
+    <div class="input-group">
+      <label>2. High Light Marker (Daylight / SAD Lamp)</label>
+      <div class="input-row">
+        <button onclick="capturePoint(2)" class="secondary" style="width: auto;">Capture Raw</button>
+        <input type="number" id="p2-raw" placeholder="Raw Metric" readonly>
+        <input type="number" id="p2-ref" placeholder="Meter lx">
+      </div>
+    </div>
+
+    <button onclick="saveCalibration()">Save Calibration</button>
+    <button onclick="switchView('view-main')" class="secondary">Cancel / Back</button>
+  </div>
+
+</div>
+
+<!-- Hidden stream buffer elements -->
+<video id="video" autoplay playsinline></video>
+<canvas id="canvas" width="64" height="64"></canvas>
+
+<script>
+  let videoTrack = null;
+  let rawCameraMetric = 0;
+  let cal = JSON.parse(localStorage.getItem('sad_meter_calibration')) || { p1Raw: null, p1Ref: null, p2Raw: null, p2Ref: null, slope: null, offset: null };
+
+  const video = document.getElementById('video');
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+
+  async function initCamera() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "user", width: { ideal: 64 }, height: { ideal: 64 } }
+      });
+      video.srcObject = stream;
+      videoTrack = stream.getVideoTracks()[0];
+
+      // Lock camera exposure/white balance to avoid auto-gain adjustment distortion
+      if (videoTrack.getCapabilities) {
+        const caps = videoTrack.getCapabilities();
+        const constraints = {};
+        if (caps.exposureMode && caps.exposureMode.includes('manual')) constraints.exposureMode = 'manual';
+        if (caps.whiteBalanceMode && caps.whiteBalanceMode.includes('manual')) constraints.whiteBalanceMode = 'manual';
         
-        // Uncalibrated relative scaling (0-255 scaled to an arbitrary lux curve)
-        // This value is calibrated against a meter using your two-point setup
-        const estimatedLux = Math.round(Math.pow(avgLuminance / 255, 2.2) * 12000);
-        luxDisplay.innerText = estimatedLux.toLocaleString() + " lx";
+        if (Object.keys(constraints).length > 0) {
+          await videoTrack.applyConstraints({ advanced: [constraints] });
+        }
       }
+
+      setInterval(processFrame, 200);
+    } catch (err) {
+      alert("Camera initialization failed: " + err.message);
     }
-  </script>
+  }
+
+  function processFrame() {
+    if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+
+    ctx.drawImage(video, 0, 0, 64, 64);
+    const frame = ctx.getImageData(0, 0, 64, 64);
+    const data = frame.data;
+    let totalLuminance = 0;
+
+    for (let i = 0; i < data.length; i += 4) {
+      // Relative luminance computation: 0.299*R + 0.587*G + 0.114*B
+      totalLuminance += (0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+    }
+    const avgLum = totalLuminance / (data.length / 4);
+
+    // Normalize using Exposure Time and ISO metadata if provided by device settings
+    let expFactor = 1;
+    if (videoTrack && videoTrack.getSettings) {
+      const settings = videoTrack.getSettings();
+      const expTime = settings.exposureTime || 1;
+      const iso = settings.iso || 1;
+      expFactor = expTime * iso;
+      if (expFactor <= 0) expFactor = 1;
+    }
+
+    rawCameraMetric = avgLum / expFactor;
+    updateUI();
+  }
+
+  function getCalibratedLux(raw) {
+    if (cal.slope === null || cal.offset === null) {
+      // Default rough scaling prior to calibration
+      return Math.round(raw * 100);
+    }
+    return Math.max(0, Math.round(raw * cal.slope + cal.offset));
+  }
+
+  function updateUI() {
+    const rawStr = rawCameraMetric.toFixed(4);
+    document.getElementById('live-raw').innerText = rawStr;
+    document.getElementById('raw-val').innerText = rawStr;
+
+    const calLux = getCalibratedLux(rawCameraMetric);
+    document.getElementById('measure-val').innerText = calLux.toLocaleString() + ' lx';
+
+    // SAD Target status badge update
+    const targetEl = document.getElementById('sad-target-status');
+    if (cal.slope === null) {
+      targetEl.innerText = "Uncalibrated Sensor";
+      targetEl.style.background = "#555";
+    } else if (calLux >= 10000) {
+      targetEl.innerText = "Optimal: Met 10,000 lx Threshold";
+      targetEl.style.background = "#28a745";
+    } else if (calLux >= 2500) {
+      targetEl.innerText = "Moderate: 2,500 - 9,999 lx";
+      targetEl.style.background = "#ff9800";
+    } else {
+      targetEl.innerText = "Insufficient: Below 2,500 lx";
+      targetEl.style.background = "#dc3545";
+    }
+
+    // Main view badge
+    const badge = document.getElementById('cal-badge');
+    if (cal.slope !== null) {
+      badge.innerText = "Status: 2-Point Calibrated";
+      badge.style.background = "#28a745";
+    } else {
+      badge.innerText = "Status: Uncalibrated";
+      badge.style.background = "#333";
+    }
+  }
+
+  function capturePoint(pt) {
+    document.getElementById(`p${pt}-raw`).value = rawCameraMetric.toFixed(4);
+  }
+
+  function saveCalibration() {
+    const p1r = parseFloat(document.getElementById('p1-raw').value);
+    const p1m = parseFloat(document.getElementById('p1-ref').value);
+    const p2r = parseFloat(document.getElementById('p2-raw').value);
+    const p2m = parseFloat(document.getElementById('p2-ref').value);
+
+    if (isNaN(p1r) || isNaN(p1m) || isNaN(p2r) || isNaN(p2m)) {
+      alert("Please capture raw metrics and input reference meter readings for both points.");
+      return;
+    }
+
+    if (p1r === p2r) {
+      alert("Raw readings for Point 1 and Point 2 must be different.");
+      return;
+    }
+
+    // Two-Point Linear Fit: y = mx + b  (Lux = slope * Raw + offset)
+    const slope = (p2m - p1m) / (p2r - p1r);
+    const offset = p1m - (slope * p1r);
+
+    cal = { p1Raw: p1r, p1Ref: p1m, p2Raw: p2r, p2Ref: p2m, slope: slope, offset: offset };
+    localStorage.setItem('sad_meter_calibration', JSON.stringify(cal));
+
+    alert(`Calibration Saved!\nSlope: ${slope.toFixed(3)}, Offset: ${offset.toFixed(1)}`);
+    switchView('view-main');
+  }
+
+  function deleteCalibration() {
+    if (confirm("Delete saved calibration data and reset to raw defaults?")) {
+      localStorage.removeItem('sad_meter_calibration');
+      cal = { p1Raw: null, p1Ref: null, p2Raw: null, p2Ref: null, slope: null, offset: null };
+      document.getElementById('p1-raw').value = '';
+      document.getElementById('p1-ref').value = '';
+      document.getElementById('p2-raw').value = '';
+      document.getElementById('p2-ref').value = '';
+      updateUI();
+      alert("Calibration data deleted.");
+    }
+  }
+
+  function shareReading() {
+    const luxVal = getCalibratedLux(rawCameraMetric).toLocaleString();
+    const shareData = {
+      title: 'SAD Lamp Lux Measurement',
+      text: `Measured ${luxVal} lx from SAD therapy lamp using camera illuminance meter.`,
+      url: window.location.href
+    };
+
+    if (navigator.share) {
+      navigator.share(shareData).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(shareData.text);
+      alert("Measurement copied to clipboard!");
+    }
+  }
+
+  function switchView(viewId) {
+    document.querySelectorAll('.container > div').forEach(div => div.classList.add('hidden'));
+    document.getElementById(viewId).classList.remove('hidden');
+
+    if (viewId === 'view-calibrate' && cal.p1Raw !== null) {
+      document.getElementById('p1-raw').value = cal.p1Raw;
+      document.getElementById('p1-ref').value = cal.p1Ref;
+      document.getElementById('p2-raw').value = cal.p2Raw;
+      document.getElementById('p2-ref').value = cal.p2Ref;
+    }
+  }
+
+  initCamera();
+</script>
 </body>
 </html>
