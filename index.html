@@ -2,131 +2,67 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Light Meter</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sensor Test</title>
   <style>
-    * { box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 16px; max-width: 480px; margin: 0 auto; background-color: #f8f9fa; color: #212529; }
-    .card { background: #ffffff; border: 1px solid #e9ecef; border-radius: 12px; padding: 20px; margin-bottom: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    .label-title { font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.5px; color: #6c757d; font-weight: 700; margin-bottom: 4px; }
-    .readout { font-size: 2.8em; font-weight: 800; color: #0d6efd; line-height: 1.1; margin: 8px 0; }
-    .sub-readout { font-size: 1.1em; color: #495057; font-weight: 500; }
-    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 10px; }
-    label { display: block; font-size: 0.9em; font-weight: 600; margin-bottom: 6px; color: #343a40; }
-    input[type="number"], input[type="text"] {
-      width: 100%;
-      height: 48px;
-      padding: 10px 12px;
-      font-size: 16px; /* 16px prevents iOS/Android auto-zoom on focus */
-      border: 2px solid #ced4da;
-      border-radius: 8px;
-      background-color: #ffffff;
-      color: #000000;
-      -webkit-appearance: none;
-      appearance: none;
-      touch-action: manipulation;
-    }
-    input[type="number"]:focus { border-color: #0d6efd; outline: none; background-color: #fff; }
-    button { width: 100%; height: 48px; margin-top: 14px; background: #0d6efd; color: white; border: none; border-radius: 8px; font-size: 1em; font-weight: 600; cursor: pointer; touch-action: manipulation; }
-    button:active { background: #0b5ed7; }
-    .status { margin-top: 12px; font-size: 0.85em; font-weight: 600; text-align: center; color: #198754; }
+    body { font-family: sans-serif; background: #121212; color: #fff; text-align: center; padding: 40px 20px; }
+    .val { font-size: 3.5rem; font-weight: bold; color: #00ffcc; margin: 30px 0; }
+    button { padding: 16px 32px; font-size: 1.2rem; font-weight: bold; background: #007bff; color: white; border: none; border-radius: 8px; }
+    .log { margin-top: 25px; font-size: 0.9rem; color: #aaa; background: #1e1e1e; padding: 12px; border-radius: 6px; }
   </style>
 </head>
 <body>
 
-  <div class="card">
-    <div class="label-title">Illuminance Measurement</div>
-    <div class="readout"><span id="calibratedLux">0.0</span> <span style="font-size: 0.5em;">lx</span></div>
-    <div class="sub-readout">Raw Uncalibrated: <span id="rawLux">0.0</span> lx</div>
-  </div>
+  <h2>Light Sensor Hardware Test</h2>
 
-  <div class="card">
-    <div class="label-title">Two-Point Calibration</div>
-    
-    <div class="grid">
-      <div>
-        <label for="ref1">Ref Light 1 (lx)</label>
-        <input type="number" id="ref1" step="any" inputmode="decimal" placeholder="e.g. 100">
-      </div>
-      <div>
-        <label for="raw1">Measured 1 (lx)</label>
-        <input type="number" id="raw1" step="any" inputmode="decimal" placeholder="e.g. 85">
-      </div>
-    </div>
+  <div class="val" id="luxDisplay">-- lx</div>
 
-    <div class="grid" style="margin-top: 8px;">
-      <div>
-        <label for="ref2">Ref Light 2 (lx)</label>
-        <input type="number" id="ref2" step="any" inputmode="decimal" placeholder="e.g. 500">
-      </div>
-      <div>
-        <label for="raw2">Measured 2 (lx)</label>
-        <input type="number" id="raw2" step="any" inputmode="decimal" placeholder="e.g. 440">
-      </div>
-    </div>
+  <button id="readBtn">Take Reading</button>
 
-    <button type="button" id="saveBtn">Apply & Save Calibration</button>
-    <div id="status" class="status"></div>
-  </div>
+  <div class="log" id="statusLog">Status: Initializing...</div>
 
   <script>
-    const STORAGE_KEY = 'lightmeter_cal_v2';
-    let cal = { slope: 1.0, offset: 0.0 };
+    const luxDisplay = document.getElementById('luxDisplay');
+    const statusLog = document.getElementById('statusLog');
+    const readBtn = document.getElementById('readBtn');
 
-    function loadSavedCalibration() {
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          cal.slope = parseFloat(parsed.slope) || 1.0;
-          cal.offset = parseFloat(parsed.offset) || 0.0;
-        } catch(e) {}
-      }
-    }
+    let latestLux = null;
+    let sensor = null;
 
-    function calculateAndSave() {
-      const r1 = parseFloat(document.getElementById('ref1').value);
-      const m1 = parseFloat(document.getElementById('raw1').value);
-      const r2 = parseFloat(document.getElementById('ref2').value);
-      const m2 = parseFloat(document.getElementById('raw2').value);
-
-      // If valid 2-point data provided, calculate m and b automatically
-      if (!isNaN(r1) && !isNaN(m1) && !isNaN(r2) && !isNaN(m2) && (m2 !== m1)) {
-        cal.slope = (r2 - r1) / (m2 - m1);
-        cal.offset = r1 - (cal.slope * m1);
-      } 
-
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(cal));
-
-      const statusEl = document.getElementById('status');
-      statusEl.textContent = `Saved! Slope (m): ${cal.slope.toFixed(4)}, Offset (b): ${cal.offset.toFixed(2)}`;
-      setTimeout(() => { statusEl.textContent = ''; }, 4000);
-    }
-
-    document.getElementById('saveBtn').addEventListener('click', calculateAndSave);
-
-    function updateDisplay(rawVal) {
-      document.getElementById('rawLux').textContent = rawVal.toFixed(1);
-      const calibrated = (rawVal * cal.slope) + cal.offset;
-      document.getElementById('calibratedLux').textContent = Math.max(0, calibrated).toFixed(1);
-    }
-
-    loadSavedCalibration();
-
+    // Check Web API Availability
     if ('AmbientLightSensor' in window) {
       try {
-        const sensor = new AmbientLightSensor();
-        sensor.addEventListener('reading', () => updateDisplay(sensor.illuminance));
-        sensor.addEventListener('error', (e) => {
-          document.getElementById('status').textContent = 'Sensor error: ' + e.error.name;
+        sensor = new AmbientLightSensor();
+
+        sensor.addEventListener('reading', () => {
+          latestLux = sensor.illuminance;
+          statusLog.innerText = "Status: Hardware sensor actively streaming data.";
         });
+
+        sensor.addEventListener('error', (event) => {
+          statusLog.innerText = "Sensor Error: " + event.error.name + " - " + event.error.message;
+        });
+
         sensor.start();
       } catch (err) {
-        document.getElementById('status').textContent = 'Sensor init failed: ' + err.message;
+        statusLog.innerText = "Init Exception: " + err.message;
       }
     } else {
-      document.getElementById('status').textContent = 'AmbientLightSensor API unavailable.';
+      statusLog.innerText = "Status: 'AmbientLightSensor' API is NOT exposed in this browser.";
     }
+
+    // Button click updates display with the latest captured frame
+    readBtn.addEventListener('click', () => {
+      if (latestLux !== null) {
+        luxDisplay.innerText = latestLux + " lx";
+      } else if (!('AmbientLightSensor' in window)) {
+        luxDisplay.innerText = "Unsupported";
+        alert("Your browser does not expose the AmbientLightSensor API.");
+      } else {
+        luxDisplay.innerText = "No Data";
+        alert("Sensor API exists, but no light reading has been emitted yet. Check browser flags or permissions.");
+      }
+    });
   </script>
 </body>
 </html>
